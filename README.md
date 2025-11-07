@@ -103,6 +103,3 @@ Download filtered data as CSV for further analysis.
 - matplotlib - Data visualization
 - streamlit - Web interface
 - numpy - Numerical computing
-
-## License
-This project is open source and available under the MIT License.
