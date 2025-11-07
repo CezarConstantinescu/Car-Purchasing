@@ -29,23 +29,45 @@ pip install -r requirements.txt
 
 Run the Streamlit application:
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 The application will open in your default web browser at `http://localhost:8501`.
 
 ## Data Structure
 
-The application uses a CSV file (`car_data.csv`) with the following columns:
-- Customer Name
-- Customer E-mail
-- Country
-- Gender
-- Age
-- Annual Salary
-- Credit Card Debt
-- Net Worth
-- Car Purchase Amount
+The application uses a CSV file (`car_sales.csv`) with the following columns:
+-Salesperson
+-Customer Name
+-Customer Age
+-Customer Gender
+-Income
+-Income Type
+-Education Type
+-Family
+-Status
+-Housing Type	
+-Family Members	
+-Car Make	
+-Car Model	
+-Car Year	
+-Sale Price	
+-Payment Method	
+-Sales Region	
+-Sale Month	
+-Day of Week	
+-Season	
+-Fuel Type	
+-Transmission	
+-Color	
+-Owner	
+-Engine	
+-Max Power	
+-Max Torque	
+-Drivetrain	
+-Seating Capacity	
+-Fuel Tank Capacity
+
 
 ## Dashboard Features
 
