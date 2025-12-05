@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+# Optional interactive plotting
+try:
+    import plotly.express as px
+except Exception:
+    px = None
 
 # Page configuration
 st.set_page_config(
@@ -195,53 +200,106 @@ else:
 
     insight_col1, insight_col2 = st.columns(2)
 
-    with insight_col1:
-        # Top 10 sales regions by average sale price
-        st.subheader("Top 10 Sales Regions by Avg Sale Price")
-        region_avg = filtered_df.groupby(region_col)[sale_col].mean().sort_values(ascending=False).head(10)
-        fig5, ax5 = plt.subplots(figsize=(10, 6))
-        region_avg.plot(kind='barh', ax=ax5, color='coral')
-        ax5.set_xlabel('Average Sale Price ($)')
-        ax5.set_ylabel('Sales Region')
-        ax5.set_title('Top 10 Sales Regions by Average Sale Price')
-        ax5.grid(True, alpha=0.3, axis='x')
-        st.pyplot(fig5)
-        plt.close()
+    # Map controls and interactive map (standalone above the insights columns)
+    st.subheader("📍 Sales by State (US map)")
+    if px is None:
+        st.warning("Plotly is not installed. Install it with `pip install plotly` to see the interactive US map.")
+    else:
+        with st.expander("Map controls", expanded=False):
+            map_metric = st.selectbox("Metric to display on map", ["Total Sales", "Average Sale Price", "Number of Sales"], index=0)
+            # Sale Month filter for the map
+            month_col = 'Sale Month' if 'Sale Month' in filtered_df.columns else None
+            month_options = sorted(filtered_df[month_col].dropna().unique().tolist()) if month_col else []
+            selected_months = st.multiselect("Filter months (map)", options=month_options, default=month_options)
+            color_scale = st.selectbox("Color scale", ["Blues", "Viridis", "Reds", "Cividis"], index=0)
 
-    with insight_col2:
-        # Age group analysis
-        st.subheader("Age Group Analysis")
-        age_bins = [0, 30, 40, 50, 60, 100]
-        age_labels = ['<30', '30-40', '40-50', '50-60', '60+']
-        filtered_df_copy = filtered_df.copy()
-        filtered_df_copy['Age Group'] = pd.cut(filtered_df_copy[age_col], bins=age_bins, labels=age_labels)
-        age_group_avg = filtered_df_copy.groupby('Age Group')[sale_col].mean()
-        
-        fig6, ax6 = plt.subplots(figsize=(10, 6))
-        age_group_avg.plot(kind='bar', ax=ax6, color='lightgreen', edgecolor='black')
-        ax6.set_xlabel('Age Group')
-        ax6.set_ylabel('Average Sale Price ($)')
-        ax6.set_title('Average Sale Price by Age Group')
-        ax6.grid(True, alpha=0.3, axis='y')
-        ax6.set_xticklabels(ax6.get_xticklabels(), rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig6)
-        plt.close()
+        # Mapping of full state names to USPS abbreviations
+        state_abbrev = {
+            'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO','Connecticut':'CT','Delaware':'DE','District of Columbia':'DC','Florida':'FL','Georgia':'GA','Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS','Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA','Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT','Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK','Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT','Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY'
+        }
 
-    # Car Year vs Sale Price
-    st.subheader("Car Year vs Sale Price")
-    fig7, ax7 = plt.subplots(figsize=(12, 6))
-    # color by income to surface purchasing power
-    scatter = ax7.scatter(filtered_df[car_year_col], filtered_df[sale_col], 
-                         c=filtered_df[income_col], cmap='viridis', alpha=0.6, edgecolors='black')
-    ax7.set_xlabel('Car Year')
-    ax7.set_ylabel('Sale Price ($)')
-    ax7.set_title('Car Year vs Sale Price (colored by Income)')
-    ax7.grid(True, alpha=0.3)
-    cbar = plt.colorbar(scatter, ax=ax7)
-    cbar.set_label('Income')
-    st.pyplot(fig7)
-    plt.close()
+        # Build the DataFrame used for the map, applying the optional month filter
+        map_df = filtered_df.copy()
+        if month_col and selected_months:
+            map_df = map_df[map_df[month_col].isin(selected_months)]
+
+        # Aggregate by region/state depending on chosen metric
+        if map_metric == "Total Sales":
+            agg = map_df.groupby(region_col)[sale_col].sum().reset_index().rename(columns={region_col: 'state_name', sale_col: 'value'})
+            value_label = 'Total Sales ($)'
+        elif map_metric == "Average Sale Price":
+            agg = map_df.groupby(region_col)[sale_col].mean().reset_index().rename(columns={region_col: 'state_name', sale_col: 'value'})
+            value_label = 'Avg Sale Price ($)'
+        else:  # Number of Sales
+            agg = map_df.groupby(region_col).size().reset_index(name='value').rename(columns={region_col: 'state_name'})
+            value_label = 'Number of Sales'
+
+        # Map to state codes and prepare hover info
+        agg['state_code'] = agg['state_name'].map(state_abbrev)
+        # add additional hover metrics
+        stats = map_df.groupby(region_col)[sale_col].agg(['sum', 'mean', 'count']).reset_index().rename(columns={region_col: 'state_name'})
+        merged = agg.merge(stats, on='state_name', how='left')
+        merged = merged.dropna(subset=['state_code'])
+
+        if merged.empty:
+            st.info("No valid US state names found in the Sales Region column (after filters) to render the map.")
+        else:
+            # Prepare user-friendly hover fields (no = or underscores)
+            merged['sum_fmt'] = merged['sum'].apply(lambda x: f"${x:,.2f}")
+            merged['mean_fmt'] = merged['mean'].apply(lambda x: f"${x:,.2f}")
+            merged['count'] = merged['count'].astype(int)
+
+            labels_map = {
+                'value': value_label,
+                'state_name': 'State',
+                'sum_fmt': 'Total sales',
+                'mean_fmt': 'Average sale',
+                'count': 'Number of sales'
+            }
+
+            # Use custom_data + hovertemplate for exact hover formatting
+            fig_map = px.choropleth(
+                merged,
+                locations='state_code',
+                locationmode='USA-states',
+                color='value',
+                scope='usa',
+                color_continuous_scale=color_scale,
+                labels={'value': value_label},
+                hover_name='state_name',
+                custom_data=['sum_fmt', 'mean_fmt', 'count']
+            )
+
+            hovertemplate = (
+                "<b>%{hovertext}</b><br>"
+                "Total sales: %{customdata[0]}<br>"
+                "Average sale: %{customdata[1]}<br>"
+                "Number of sales: %{customdata[2]}<extra></extra>"
+            )
+
+            fig_map.update_traces(marker_line_width=0.5, marker_line_color='white', hovertemplate=hovertemplate)
+            fig_map.update_layout(margin={'r':0,'t':30,'l':0,'b':0}, height=480)
+            st.plotly_chart(fig_map, use_container_width=True)
+
+            # State inspector: select a state to show details
+            state_options = merged['state_name'].sort_values().tolist()
+            if state_options:
+                sel_state = st.selectbox('Inspect state', options=state_options, index=0)
+                st.markdown(f"**Summary for {sel_state}**")
+                s = merged[merged['state_name'] == sel_state].iloc[0]
+                st.metric('Total sales', f"${s['sum']:,.2f}")
+                st.metric('Average sale', f"${s['mean']:,.2f}")
+                st.metric('Number of sales', int(s['count']))
+
+                # Top car makes in that state
+                make_col = 'Car Make' if 'Car Make' in map_df.columns else None
+                if make_col:
+                    top_makes = (map_df[map_df[region_col] == sel_state].groupby(make_col)[sale_col].sum().reset_index().sort_values(by=sale_col, ascending=False).head(5))
+                    top_makes.columns = ['Car Make', 'Total Sales']
+                    st.table(top_makes)
+                else:
+                    st.info('No `Car Make` column found to show top makes.')
+        # (removed legacy non-interactive map block)
 
     # Statistical summary
     st.header("📊 Statistical Summary")
